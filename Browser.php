@@ -7,14 +7,14 @@ use Mobile_Detect;
  * Class Browser
  *
  * @package		Coercive\Utility\Browser
- * @link		@link https://github.com/Coercive/browser
+ * @link		https://github.com/Coercive/browser
  *
  * @author  	Anthony Moral <contact@coercive.fr>
- * @copyright   (c) 2017 - 2018 Anthony Moral
- * @license 	http://www.gnu.org/copyleft/lesser.html GNU Lesser General Public License
+ * @copyright   (c) 2018 Anthony Moral
+ * @license 	MIT
  */
-class Browser {
-
+class Browser
+{
 	/** @var string SERVER */
 	private $_REMOTE_ADDR = null;
 	private $_HTTP_X_FORWARDED_FOR = null;
@@ -41,15 +41,14 @@ class Browser {
 	/**
 	 * Récupération des données renvoyées par le client.
 	 */
-	public function __construct() {
-
+	public function __construct()
+	{
 		# User Agent from server
 		$this->sUserAgent = filter_input(INPUT_SERVER, 'HTTP_USER_AGENT', FILTER_SANITIZE_FULL_SPECIAL_CHARS);
 
 		# IP + Port from server
 		$this->_REMOTE_ADDR = filter_input(INPUT_SERVER, 'REMOTE_ADDR', FILTER_SANITIZE_FULL_SPECIAL_CHARS);
 		$this->_HTTP_X_FORWARDED_FOR = filter_input(INPUT_SERVER, 'HTTP_X_FORWARDED_FOR', FILTER_SANITIZE_FULL_SPECIAL_CHARS);
-
 	}
 
 	/**
@@ -57,7 +56,8 @@ class Browser {
 	 *
 	 * @return Mobile_Detect
 	 */
-	public function Mobile_Detect() {
+	public function Mobile_Detect(): Mobile_Detect
+	{
 		static $_oMobile = null;
 		if(!$_oMobile) { $_oMobile = new Mobile_Detect; }
 		return $_oMobile;
@@ -68,8 +68,8 @@ class Browser {
 	 *
 	 * @return string
 	 */
-	public function getIP() {
-
+	public function getIP(): string
+	{
 		# IP potentielle
 		$sIp = $this->_HTTP_X_FORWARDED_FOR ? $this->_HTTP_X_FORWARDED_FOR : $this->_REMOTE_ADDR;
 		$sIp = str_replace(' ', '', $sIp);
@@ -89,10 +89,10 @@ class Browser {
 	 * @param string $sIp - IPV4 format : 127.0.0.1
 	 * @return bool
 	 */
-	public function isClientIpInRange($sRange, $sIp=null) {
-
+	public function isClientIpInRange($sRange, $sIp=null): bool
+	{
 		# O ou false : Ajouter le netmask /32 présumé
-		if (strpos($sRange, '/') == false) { $sRange .= '/32'; }
+		if (strpos($sRange, '/') === false) { $sRange .= '/32'; }
 
 		# Séparer range du netmask pour traitement
 		list($sRange, $sNetmask) = explode('/', $sRange, 2);
@@ -116,8 +116,9 @@ class Browser {
 	 *
 	 * @return string
 	 */
-	public function getAGENT() {
-		return $this->sUserAgent;
+	public function getAGENT(): string
+	{
+		return (string) $this->sUserAgent;
 	}
 
 	/**
@@ -126,7 +127,8 @@ class Browser {
 	 *
 	 * @return bool
 	 */
-	public function mobile() {
+	public function mobile(): bool
+	{
 		return preg_match($this->sDetectMobile, $this->sUserAgent) || preg_match($this->sDetectMobile_abr, substr($this->sUserAgent, 0, 4));
 	}
 
@@ -135,7 +137,8 @@ class Browser {
 	 *
 	 * @return string
 	 */
-	public function os() {
+	public function os(): string
+	{
 		$sPlatform = 'Unknown';
 
 		if (preg_match('/linux/i', $this->sUserAgent)) {
@@ -154,7 +157,8 @@ class Browser {
 	 *
 	 * @return array
 	 */
-	public function browser() {
+	public function browser(): array
+	{
 		$sBrowserName = 'Unknown';
 		$sNameForSearchVersion = 'Unknown';
 
