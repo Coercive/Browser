@@ -16,12 +16,12 @@
         }
     ],
     "require": {
-        "php": ">=7",
+        "php": ">=7.4",
         "mobiledetect/mobiledetectlib": "^2.8"
     },
     "require-dev": {},
     "autoload": {
-        "psr-4": { "Coercive\\Utility\\Browser\\": "" }
+        "psr-4": { "Coercive\\Utility\\Browser\\": "dist/" }
     },
     "minimum-stability" : "dev",
     "extra": {
