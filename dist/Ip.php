@@ -172,4 +172,45 @@ class Ip
 		}
 		return $list;
 	}
+
+	/**
+	 * Check if IP is in given domain list - with optional reverse check
+	 *
+	 * @param string $ip
+	 * @param array $domains
+	 * @param bool $reverse [optional]
+	 * @return bool
+	 */
+	public function isIpMatchDomains(string $ip, array $domains, bool $reverse = false): bool
+	{
+		# Get hostname
+		$hostname = gethostbyaddr($ip);
+		if(!$hostname) {
+			return false;
+		}
+
+		# Detect if in domains list
+		$founded = false;
+		foreach ($domains as $domain) {
+			if (preg_match('`' . preg_quote($domain, '$`') . '`', $hostname)) {
+				$founded = true;
+				break;
+			}
+		}
+		if(!$founded) {
+			return false;
+		}
+
+		# Reverse match
+		if(!$reverse) {
+			return true;
+		}
+		$hosts = gethostbynamel($hostname) ?: [];
+		foreach ($hosts as $host) {
+			if($host === $ip) {
+				return true;
+			}
+		}
+		return false;
+	}
 }

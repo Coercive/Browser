@@ -57,6 +57,9 @@ echo '<pre>';
 var_dump($ip->cidrToFullRange('127.0.0.1/32'));
 echo '</pre>';
 
+# Check if IP is in given domain list - with optional reverse check
+if($ip->isIpMatchDomains('127.0.0.1', ['example.domain.com'], true)) {}
+
 # Checking if a given ip belongs to given cidr list
 if($ip->isInRange('127.0.0.1', ['127.0.0.1/27','127.0.0.1/64'])) {}
 ```
