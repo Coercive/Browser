@@ -213,4 +213,41 @@ class Ip
 		}
 		return false;
 	}
+
+	/**
+	 * Convert a range of IP addresses to CIDR notation.
+	 *
+	 * @param string $startIP The starting IP address of the range.
+	 * @param string $endIP The ending IP address of the range.
+	 * @return array An array of CIDR notations.
+	 */
+	public function rangeToCIDR(string $startIP, string $endIP): array
+	{
+		$start = ip2long($startIP);
+		$end = ip2long($endIP);
+		$cidrList = [];
+
+		while ($end >= $start) {
+			$maxSize = 32;
+			while ($maxSize > 0) {
+				$mask = (1 << (32 - $maxSize)) - 1;
+				$maskBase = $start & ~$mask;
+				if ($maskBase != $start) {
+					break;
+				}
+				$maxSize--;
+			}
+
+			$maxDiff = 32 - (int) floor(log($end - $start + 1) / log(2));
+			if ($maxSize < $maxDiff) {
+				$maxSize = $maxDiff;
+			}
+
+			$cidr = long2ip($start) . '/' . $maxSize;
+			$cidrList[] = $cidr;
+			$start += 1 << (32 - $maxSize);
+		}
+
+		return $cidrList;
+	}
 }
