@@ -250,4 +250,36 @@ class Ip
 
 		return $cidrList;
 	}
+
+	/**
+	 * Calculate the number of IP addresses in a given CIDR block.
+	 *
+	 * @param string $cidr The CIDR block (e.g., "192.168.1.0/24").
+	 * @return int The number of IP addresses in the CIDR block.
+	 */
+	public function countIPsInCIDR(string $cidr): int
+	{
+		if($mask = explode('/', $cidr)[1] ?? null) {
+			return 1 << (32 - (int) $mask);
+		}
+		return 1;
+	}
+
+	/**
+	 * Calculate the number of IP addresses in a given IP range.
+	 *
+	 * @param string $startIP The starting IP address of the range.
+	 * @param string $endIP The ending IP address of the range.
+	 * @return int The number of IP addresses in the range.
+	 */
+	public function countIPsInRange(string $startIP, string $endIP): int
+	{
+		$start = ip2long($startIP);
+		$end = ip2long($endIP);
+
+		if ($start === false || $end === false || $start > $end) {
+			return 0;
+		}
+		return ($end - $start + 1);
+	}
 }
