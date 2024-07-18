@@ -71,6 +71,27 @@ class Ip
 	}
 
 	/**
+	 * Check if the given ipv4 is between given range
+	 *
+	 * @param string $ipv4 - IPV4 format : 127.0.0.1
+	 * @param string $startIP - IPV4 format : 127.0.0.1
+	 * @param string $endIP - IPV4 format : 127.0.0.1
+	 * @return bool
+	 */
+	public function isBetween(string $ipv4, string $startIP, string $endIP): bool
+	{
+		$ipLong = ip2long($ipv4);
+		$startLong = ip2long($startIP);
+		$endLong = ip2long($endIP);
+
+		if ($ipLong === false || $startLong === false || $endLong === false) {
+			return false;
+		}
+
+		return ($ipLong >= $startLong && $ipLong <= $endLong);
+	}
+
+	/**
 	 * Check if the given ipv4 belongs to given list of cidr
 	 *
 	 * @source https://stackoverflow.com/questions/4931721/getting-list-ips-from-cidr-notation-in-php#answer-42269989
