@@ -113,6 +113,15 @@ class Ip
 	}
 
 	/**
+	 * @param string $ip
+	 * @return bool
+	 */
+	public function hasCIDR(string $ip): bool
+	{
+		return false !== strpos($ip, '/');
+	}
+
+	/**
 	 * Validate IPV4 or CIDR
 	 *
 	 * @param string $ip
@@ -157,21 +166,28 @@ class Ip
 	 */
 	public function isBetweenIPv4(string $ipv4, string $startIP, string $endIP): bool
 	{
-		$ipLong = ip2long($ipv4);
-		$startLong = ip2long($startIP);
-		$endLong = ip2long($endIP);
-
-		if ($ipLong === false) {
-			throw new InvalidArgumentException("Invalid IPv4 address format.");
+		if($this->hasCIDR($ipv4)) {
+			$range = $this->cidrToRange($ipv4);
+			$ipStart = $range['ip_min_dec'] ?? false;
+			$ipEnd = $range['ip_max_dec'] ?? false;
 		}
-		if ($startLong === false) {
+		else {
+			$ipStart = $ipEnd = ip2long($ipv4);
+			if ($ipStart === false) {
+				throw new InvalidArgumentException("Invalid IPv4 address format.");
+			}
+		}
+
+		$rangeStart = ip2long($startIP);
+		$rangeEnd = ip2long($endIP);
+		if ($rangeStart === false) {
 			throw new InvalidArgumentException("Invalid starting IPv4 address format.");
 		}
-		if ($endLong === false) {
+		if ($rangeEnd === false) {
 			throw new InvalidArgumentException("Invalid ending IPv4 address format.");
 		}
 
-		return ($ipLong >= $startLong && $ipLong <= $endLong);
+		return ($ipStart >= $rangeStart && $ipEnd <= $rangeEnd);
 	}
 
 	/**
@@ -288,6 +304,10 @@ class Ip
 		else {
 			$n_ip = 0;
 			$ip_dec = ip2long($ipv4);
+		}
+
+		if ($ip_dec === false) {
+			throw new InvalidArgumentException("Invalid IPv4 address format.");
 		}
 
 		# Define range
