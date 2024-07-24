@@ -17,6 +17,7 @@
     ],
     "require": {
         "php": ">=7.4",
+        "ext-gmp": "*",
         "mobiledetect/mobiledetectlib": "^2.8"
     },
     "require-dev": {},
