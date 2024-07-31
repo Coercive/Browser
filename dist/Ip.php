@@ -457,25 +457,21 @@ class Ip
 		}
 
 		$cidrList = [];
-		while ($end >= $start) {
+		while ($start <= $end) {
 			$maxSize = 32;
 			while ($maxSize > 0) {
-				$mask = (1 << (32 - $maxSize)) - 1;
-				$maskBase = $start & ~$mask;
-				if ($maskBase != $start) {
+				$mask = ~(pow(2, (32 - $maxSize)) - 1);
+				$maskedBase = $start & $mask;
+
+				// Check if the mask exceeds the end address
+				if ($maskedBase != $start || ($start | ~$mask) > $end) {
 					break;
 				}
 				$maxSize--;
 			}
 
-			$maxDiff = 32 - (int) floor(log($end - $start + 1) / log(2));
-			if ($maxSize < $maxDiff) {
-				$maxSize = $maxDiff;
-			}
-
-			$cidr = long2ip($start) . '/' . $maxSize;
-			$cidrList[] = $cidr;
-			$start += 1 << (32 - $maxSize);
+			$cidrList[] = long2ip($start) . '/' . ($maxSize + 1);
+			$start += pow(2, (32 - ($maxSize + 1)));
 		}
 		return $cidrList;
 	}
