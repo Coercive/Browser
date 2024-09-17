@@ -268,10 +268,10 @@ class Ip
 
 		# This code is checking if a given ip belongs to given cidr list
 		foreach($cidrs as $cidr) {
-			if(!$range = $this->cidrToRange($cidr)) {
+			if(!$range = $this->cidr2LongIntRange($cidr)) {
 				continue;
 			}
-			if($ip >= $range['ip_min_dec'] && $ip <= $range['ip_max_dec']) {
+			if($ip >= $range[0] && $ip <= $range[1]) {
 				return true;
 			}
 		}
