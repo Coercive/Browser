@@ -281,6 +281,37 @@ class Ip
 	/**
 	 * Convert CIDR to RANGE IP
 	 *
+	 * Same as ->cidrToRange() but give ONLY int notation
+	 *
+	 * @param string $ipv4
+	 * @return int[]
+	 */
+	public function cidr2LongIntRange(string $ipv4): array
+	{
+		# Validate IP first
+		if(!$this->check($ipv4)) {
+			return [];
+		}
+
+		# Add forgotten 32 mask
+		if (!strpos($ipv4,'/')) {
+			$ipv4 .= '/32';
+		}
+
+		# Separate start ip and mask
+		list($ip, $suffix) = explode('/', $ipv4);
+		$ip = ip2long($ip);
+		$mask = -1 << (32 - $suffix);
+
+		# Apply mask, calculate end range
+		$network = $ip & $mask;
+		$broadcast = $network + ~$mask;
+		return [$network, $broadcast];
+	}
+
+	/**
+	 * Convert CIDR to RANGE IP
+	 *
 	 * @source https://stackoverflow.com/questions/4931721/getting-list-ips-from-cidr-notation-in-php#answer-42269989
 	 * @author Php'RegEx https://stackoverflow.com/users/7558876/phpregex
 	 *
@@ -349,6 +380,58 @@ class Ip
 			$list[$ip_dec] = long2ip($ip_dec);
 		}
 		return $list;
+	}
+
+	/**
+	 * Merge IPv4 ranges (string representation)
+	 *
+	 * @param array $ranges
+	 * @return array
+	 */
+	public function mergeIpRanges(array $ranges): array
+	{
+		$longs = [];
+		foreach ($ranges as $range) {
+			$longs[] = [ip2long($range[0]), ip2long($range[1])];
+		}
+
+		$ranges = [];
+		foreach ($this->mergeIpLongIntRanges($longs) as $range) {
+			$ranges[] = [long2ip($range[0]), long2ip($range[1])];
+		}
+		return $ranges;
+	}
+
+	/**
+	 * Merge IPv4 ranges (int representation)
+	 *
+	 * @param array $longIntRanges INT ! convert IP with ip2long before
+	 * @return array
+	 */
+	public function mergeIpLongIntRanges(array $longIntRanges): array
+	{
+		# Order ASC
+		usort($longIntRanges, function($a, $b) {
+			return $a[0] - $b[0];
+		});
+
+		$merged = [];
+		$current = $longIntRanges[0];
+		foreach ($longIntRanges as $range) {
+			# MERGE : if the ranges are contiguous or overlapping
+			if ($range[0] <= $current[1] + 1) {
+				$current[1] = max($current[1], $range[1]);
+			}
+			# NEXT : otherwise, store the current range and start a new one
+			else {
+				$merged[] = $current;
+				$current = $range;
+			}
+		}
+		# Add last range
+		$merged[] = $current;
+
+		return $merged;
 	}
 
 	/**
@@ -436,20 +519,30 @@ class Ip
 	/**
 	 * Convert a range of IP addresses to CIDR notation.
 	 *
-	 * @param string $startIP The starting IP address of the range.
-	 * @param string $endIP The ending IP address of the range.
+	 * @param string $start [OR INT REPRESENTATION] The starting IP address of the range.
+	 * @param string $end [OR INT REPRESENTATION] The ending IP address of the range.
 	 * @return array An array of CIDR notations.
 	 */
-	public function rangeToCIDRIPv4(string $startIP, string $endIP): array
+	public function rangeToCIDRIPv4(string $start, string $end): array
 	{
-		$start = ip2long($startIP);
-		if ($start === false) {
-			throw new InvalidArgumentException("The starting IP address format is invalid.");
+		if(strpos('-', $start)) {
+			$start = ip2long($start);
+			if ($start === false) {
+				throw new InvalidArgumentException("The starting IP address format is invalid.");
+			}
+		}
+		else {
+			$start = intval($start);
 		}
 
-		$end = ip2long($endIP);
-		if ($end === false) {
-			throw new InvalidArgumentException("The ending IP address format is invalid.");
+		if(strpos('-', $end)) {
+			$end = ip2long($end);
+			if ($end === false) {
+				throw new InvalidArgumentException("The ending IP address format is invalid.");
+			}
+		}
+		else {
+			$end = intval($end);
 		}
 
 		if ($start > $end) {
@@ -592,5 +685,30 @@ class Ip
 		else {
 			throw new InvalidArgumentException("The two IP addresses provided must be of the same type.");
 		}
+	}
+
+	/**
+	 * Remove duplicates and merge contiguous ranges, returning an optimized list of CIDRs.
+	 *
+	 * @param array $cidrs
+	 * @return array
+	 */
+	public function optimizeCidrList(array $cidrs): array
+	{
+		# Convert CIDRS into IP ranges (long int representation)
+		$ranges = [];
+		foreach ($cidrs as $cidr) {
+			$ranges[] = $this->cidr2LongIntRange($cidr);
+		}
+
+		# Merge contiguous and overlapping ranges
+		$merged = $this->mergeIpLongIntRanges($ranges);
+
+		# Convert merged ranges into CIDRS
+		$optimized = [];
+		foreach ($merged as $range) {
+			$optimized = array_merge($optimized, $this->rangeToCIDRIPv4($range[0], $range[1]));
+		}
+		return $optimized;
 	}
 }
