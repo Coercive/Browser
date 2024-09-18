@@ -525,7 +525,7 @@ class Ip
 	 */
 	public function rangeToCIDRIPv4(string $start, string $end): array
 	{
-		if(strpos('-', $start)) {
+		if(strpos($start, '.')) {
 			$start = ip2long($start);
 			if ($start === false) {
 				throw new InvalidArgumentException("The starting IP address format is invalid.");
@@ -535,7 +535,7 @@ class Ip
 			$start = intval($start);
 		}
 
-		if(strpos('-', $end)) {
+		if(strpos($end, '.')) {
 			$end = ip2long($end);
 			if ($end === false) {
 				throw new InvalidArgumentException("The ending IP address format is invalid.");
