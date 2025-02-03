@@ -116,6 +116,15 @@ class Ip
 	 * @param string $ip
 	 * @return bool
 	 */
+	public function isMappedIPv6(string $ip): bool
+	{
+		return 0 == strpos($ip, '::ffff:');
+	}
+
+	/**
+	 * @param string $ip
+	 * @return bool
+	 */
 	public function hasCIDR(string $ip): bool
 	{
 		return false !== strpos($ip, '/');
@@ -233,14 +242,14 @@ class Ip
 	 */
 	public function isBetween(string $ip, string $startIP, string $endIP): bool
 	{
-		if($this->isIPv6($startIP) && $this->isIPv6($endIP)) {
+		if($this->isIPv6($ip) && $this->isIPv6($startIP) && $this->isIPv6($endIP)) {
 			return $this->isBetweenIPv6($ip, $startIP, $endIP);
 		}
-		elseif($this->isIPv4($startIP) && $this->isIPv4($endIP)) {
+		elseif($this->isIPv4($ip) && $this->isIPv4($startIP) && $this->isIPv4($endIP)) {
 			return $this->isBetweenIPv4($ip, $startIP, $endIP);
 		}
 		else {
-			throw new InvalidArgumentException("The two IP addresses provided must be of the same type.");
+			return false;
 		}
 	}
 
