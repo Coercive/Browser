@@ -720,4 +720,36 @@ class Ip
 		}
 		return $optimized;
 	}
+
+	/**
+	 * Order an IPv4 array list
+	 *
+	 * @param array $ipv4s
+	 * @param string $order [optional]
+	 * @return array
+	 */
+	static public function orderby(array $ipv4s, string $order = 'asc'): array
+	{
+		if($order === 'asc') {
+			uasort($ipv4s, function($a, $b) {
+				$longA = ip2long($a);
+				$longB = ip2long($b);
+				if ($longA === false && $longB === false) return 0;
+				if ($longA === false) return 1;
+				if ($longB === false) return -1;
+				return $longA <=> $longB;
+			});
+		}
+		elseif($order === 'desc') {
+			uasort($ipv4s, function($a, $b) {
+				$longA = ip2long($a);
+				$longB = ip2long($b);
+				if ($longA === false && $longB === false) return 0;
+				if ($longA === false) return 1;
+				if ($longB === false) return -1;
+				return $longB <=> $longA;
+			});
+		}
+		return $ipv4s;
+	}
 }
