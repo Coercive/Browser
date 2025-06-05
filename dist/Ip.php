@@ -149,20 +149,25 @@ class Ip
 	/**
 	 * Get current client ip
 	 *
-	 * @param bool $forwarded [optional]
+	 * @param array $trustedProxies [optional]
+	 * @param bool $deep [optional]
 	 * @return string
 	 */
-	public function getIp(bool $forwarded = true): string
+	public function getIp(array $trustedProxies = [], bool $deep = false): string
 	{
-		$ip = $forwarded && $this->_HTTP_X_FORWARDED_FOR ? $this->_HTTP_X_FORWARDED_FOR : $this->_REMOTE_ADDR;
-
-		# Deep ip from router
-		$ip = str_replace(' ', ',', $ip);
-		if(false !== $pos = strrpos($ip, ',')) {
-			$ip = substr($ip, $pos +1);
+		if ($this->_HTTP_X_FORWARDED_FOR && in_array($this->_REMOTE_ADDR, $trustedProxies)) {
+			$ips = array_map('trim', explode(',', $this->_HTTP_X_FORWARDED_FOR));
+			foreach ($ips as $ip) {
+				if(!$deep) {
+					return (string) filter_var($ip, FILTER_VALIDATE_IP);
+				}
+			}
+			if($deep && !empty($ip)) {
+				return (string) filter_var($ip, FILTER_VALIDATE_IP);
+			}
+			return '';
 		}
-
-		return $ip;
+		return (string) filter_var($this->_REMOTE_ADDR, FILTER_VALIDATE_IP);
 	}
 
 	/**
