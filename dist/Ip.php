@@ -757,4 +757,80 @@ class Ip
 		}
 		return $ipv4s;
 	}
+
+	/**
+	 * Get ASN from whois.cymru.com
+	 *
+	 * @param string $ip
+	 * @return int
+	 */
+	public function getASN(string $ip): int
+	{
+		if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+			return 0;
+		}
+
+		$cmd = "whois -h whois.cymru.com ' -v $ip'";
+		exec($cmd, $output, $return_var);
+		if ($return_var !== 0 || count($output) < 2) {
+			return 0;
+		}
+
+		$parts = preg_split('/\s+/', trim($output[1]));
+		if (count($parts) >= 1) {
+			return intval($parts[0] ?? 0);
+		}
+		return 0;
+	}
+
+	/**
+	 * GET ASN CIDRS from whois.radb.net (uniq)
+	 *
+	 * @param int $asn
+	 * @return array
+	 */
+	public function getCidrsFromASN(int $asn): array
+	{
+		if (!$asn) {
+			return [];
+		}
+
+		$cmd = "whois -h whois.radb.net -- '-i origin AS$asn' | grep ^route";
+		exec($cmd, $output, $return_var);
+		if ($return_var !== 0 || !$output) {
+			return [];
+		}
+
+		$ranges = [];
+		foreach ($output as $line) {
+			if (preg_match('`^route:\s+([\d./]+)`', $line, $match)) {
+				$ranges[] = $match[1];
+			}
+		}
+		return array_unique($ranges);
+	}
+
+	/**
+	 * GET ASN ip ranges (uniq)
+	 *
+	 * @param int $asn
+	 * @return array
+	 */
+	public function getRangesFromASN(int $asn): array
+	{
+		$cidrs = $this->getCidrsFromASN($asn);
+		if(!$cidrs) {
+			return [];
+		}
+
+		$ranges = [];
+		foreach ($cidrs as $cidr) {
+			$range = $this->cidrToRange($cidr);
+			$ranges[] = [
+				$range['ip_min'],
+				$range['ip_max']
+			];
+		}
+		return $this->mergeIpRanges($ranges);
+	}
 }
