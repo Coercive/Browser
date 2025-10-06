@@ -5,29 +5,31 @@
     "homepage": "http://coercive.fr",
     "license": "MIT",
     "licenses": [{
-      "type": "MIT",
-      "url": "https://github.com/Coercive/Browser/blob/master/LICENSE.txt"
+        "type": "MIT",
+        "url": "https://github.com/Coercive/Browser/blob/master/LICENSE.txt"
     }],
     "authors": [
         {
             "name": "Anthony Moral",
-            "email": "contact@coercive.fr",
-            "homepage": "http://coercive.fr"
+            "email": "contact@coercive.fr"
         }
     ],
+    "require-dev": {
+        "phpunit/phpunit": "^12"
+    },
     "require": {
         "php": ">=7.4",
         "ext-gmp": "*",
-        "mobiledetect/mobiledetectlib": "^2.8"
+        "ext-bcmath": "*"
     },
-    "require-dev": {},
     "autoload": {
-        "psr-4": { "Coercive\\Utility\\Browser\\": "dist/" }
-    },
-    "minimum-stability" : "dev",
-    "extra": {
-        "branch-alias": {
-            "dev-master": "1.0-dev"
+        "psr-4": {
+            "Coercive\\Utility\\Browser\\": "dist/"
         }
+    },
+    "autoload-dev": {
+        "classmap": [
+            "tests/"
+        ]
     }
 }

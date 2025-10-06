@@ -3,6 +3,7 @@ namespace Coercive\Utility\Browser;
 
 use GMP;
 use InvalidArgumentException;
+use function PHPUnit\Framework\isNumeric;
 
 /**
  * Class Ip
@@ -39,15 +40,15 @@ class Ip
 	 *
 	 * @param string $ipv6 The IPv6 address.
 	 * @return GMP The numeric representation of the IPv6 address.
+	 * @throws InvalidArgumentException
 	 */
 	private function ipv6ToGmp(string $ipv6): GMP
 	{
-		// Convert IPv6 address to expanded format
-		$expandedIp = inet_pton($ipv6);
-		$binaryIp = bin2hex($expandedIp);
-
-		// Convert binary format to GMP number
-		return gmp_init($binaryIp, 16);
+		$bin = inet_pton($ipv6);
+		if ($bin === false) {
+			throw new InvalidArgumentException("Invalid IPv6 address: $ipv6");
+		}
+		return gmp_init(bin2hex($bin), 16);
 	}
 
 	/**
@@ -60,27 +61,8 @@ class Ip
 	{
 		$hex = gmp_strval($numericIp, 16);
 		$hex = str_pad($hex, 32, '0', STR_PAD_LEFT);
-		$binaryIp = pack('H*', $hex);
-		return inet_ntop($binaryIp);
-	}
-
-	/**
-	 * Find the highest bit where two IPv6 addresses differ.
-	 *
-	 * @param GMP $start The starting IPv6 address in numeric form.
-	 * @param GMP $end The ending IPv6 address in numeric form.
-	 * @return int The position of the highest differing bit.
-	 */
-	private function highestDifferingBit(GMP $start, GMP $end): int
-	{
-		$diff = gmp_xor($start, $end);
-		$bitLength = 128;
-		for ($i = 0; $i < $bitLength; $i++) {
-			if (gmp_testbit($diff, $i)) {
-				return $bitLength - $i - 1;
-			}
-		}
-		return 0;
+		$bin = hex2bin($hex);
+		return inet_ntop($bin);
 	}
 
 	/**
@@ -96,11 +78,31 @@ class Ip
 
 	/**
 	 * @param string $ip
+	 * @return $this
+	 */
+	public function setRemoteAddress(string $ip): self
+	{
+		$this->_REMOTE_ADDR = $ip;
+		return $this;
+	}
+
+	/**
+	 * @param string $ip
+	 * @return $this
+	 */
+	public function setForwardedAddress(string $ip): self
+	{
+		$this->_HTTP_X_FORWARDED_FOR = $ip;
+		return $this;
+	}
+
+	/**
+	 * @param string $ip
 	 * @return bool
 	 */
 	public function isIPv4(string $ip): bool
 	{
-		return !$this->isIPv6($ip);
+		return (bool) preg_match(self::PATTERN_IPV4_CIDR, $ip);
 	}
 
 	/**
@@ -109,16 +111,30 @@ class Ip
 	 */
 	public function isIPv6(string $ip): bool
 	{
-		return false !== strpos($ip, ':');
+		if($this->isMappedIPv6($ip)) {
+			$ip = substr($ip, 7);
+			return $this->isIPv4($ip);
+		}
+		return (bool) preg_match(self::PATTERN_IPV6_CIDR, $ip);
 	}
 
 	/**
+	 *  Checks if an IPv6 address is an IPv4-mapped IPv6 address.
+	 *
+	 *  IPv4-mapped IPv6 addresses are IPv6 addresses that start with "::ffff:"
+	 *  and contain an IPv4 address at the end. This allows IPv6-only systems
+	 *  to represent IPv4 addresses.
+	 *
+	 *  Examples:
+	 *    ::ffff:192.168.0.1  => true
+	 *    2001:db8::1          => false
+	 *
 	 * @param string $ip
 	 * @return bool
 	 */
 	public function isMappedIPv6(string $ip): bool
 	{
-		return 0 == strpos($ip, '::ffff:');
+		return 0 === strpos($ip, '::ffff:');
 	}
 
 	/**
@@ -139,11 +155,25 @@ class Ip
 	 */
 	public function check(string $ip, bool $cidr = false): bool
 	{
-		if($cidr && !strpos($ip, '/')) {
+		$hasCidr = $this->hasCIDR($ip);
+		if($cidr && !$hasCidr) {
 			return false;
 		}
-		$pattern = $this->isIPv6($ip) ? self::PATTERN_IPV6_CIDR : self::PATTERN_IPV4_CIDR;
-		return $ip && preg_match($pattern, $ip);
+		if($hasCidr) {
+			[$ip, $prefix] = explode('/', $ip, 2);
+			if (!preg_match('/^\d{1,3}$/', $prefix)) {
+				return false;
+			}
+			$prefix = (int) $prefix;
+			if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+				return $prefix >= 0 && $prefix <= 32;
+			}
+			if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+				return $prefix >= 0 && $prefix <= 128;
+			}
+			return false;
+		}
+		return (bool) filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_IPV6);
 	}
 
 	/**
@@ -489,13 +519,18 @@ class Ip
 		return false;
 	}
 
+
+
 	/**
 	 * Convert an IP range to a list of CIDR blocks.
+	 *
+	 * Use BCMath/GMP to avoid PHP integer limits.
 	 *
 	 * @param string $startIP The starting IPv6 address of the range.
 	 * @param string $endIP The ending IPv6 address of the range.
 	 * @return array The list of CIDR blocks representing the IP range.
-	 */
+	 * @throws InvalidArgumentException
+ 	 */
 	public function rangeToCIDRIPv6(string $startIP, string $endIP): array
 	{
 		if(!$this->isIPv6($startIP) || !$this->check($startIP)) {
@@ -504,30 +539,67 @@ class Ip
 		if(!$this->isIPv6($endIP) || !$this->check($endIP)) {
 			throw new InvalidArgumentException("The ending IP address format is invalid.");
 		}
+		if ($startIP === '::' && $endIP === 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff') {
+			return ['::/0'];
+		}
 
+		# Convert hexadecimal to large decimal numbers (string)
 		$start = $this->ipv6ToGmp($startIP);
 		$end = $this->ipv6ToGmp($endIP);
-		if (gmp_cmp($start, $end) > 0) {
-			throw new InvalidArgumentException("The starting IP address must be less than or equal to the ending IP address.");
+
+		$start_dec = gmp_strval($start);
+		$end_dec = gmp_strval($end);
+		if (bccomp($start_dec, $end_dec) > 0) {
+			throw new InvalidArgumentException("The start address is greater than the end address.");
 		}
 
-		$cidrs = [];
-		while (gmp_cmp($start, $end) <= 0) {
-			$maxDiffBit = $this->highestDifferingBit($start, $end);
-			$maxCidrLength = 128 - $maxDiffBit;
+		$cidr_list = [];
+		$current_ip_dec = $start_dec;
 
-			for ($mask = 128; $mask >= $maxCidrLength; $mask--) {
-				$prefixMask = gmp_sub(gmp_pow(2, $mask), 1);
-				$network = gmp_and($start, $prefixMask);
+		# CIDR decomposition algorithm
+		while (bccomp($current_ip_dec, $end_dec) <= 0) {
 
-				if (gmp_cmp($network, $start) == 0) {
-					$cidrs[] = $this->gmpToIpv6($start) . '/' . $mask;
-					$start = gmp_add($network, gmp_pow(2, 128 - $mask));
+			# Find the smallest power of 2 by which the current address is divisible
+			for ($p = 1; $p <= 128; $p++) {
+				# $power_of_two = pow(2, $p) - Use BCMath/GMP to avoid PHP integer limits
+				$power_of_two = bcpow('2', $p);
+
+				# Check if range ends in block
+				# $next_ip_in_block = $current_ip_dec + $power_of_two - Use BCMath/GMP to avoid PHP integer limits
+				$next_ip_in_block = bcadd($current_ip_dec, $power_of_two);
+
+				# The next range exceeds the end of the requested range
+				if (bccomp($next_ip_in_block, $end_dec) > 0 && bccomp($next_ip_in_block, bcadd($end_dec, '1')) > 0) {
+					# The ideal mask is the one from the previous round
+					$max_prefix = 128 - ($p - 1);
 					break;
 				}
+
+				# Check if the current address is divisible by $power_of_two
+				if (bccomp(bcmod($current_ip_dec, $power_of_two), '0') !== 0) {
+					# The address is not aligned.
+					# The ideal mask is the one from the previous round.
+					$max_prefix = 128 - ($p - 1);
+					break;
+				}
+
+				# The smallest mask so far (the largest block)
+				$max_prefix = 128 - $p;
 			}
+
+			# Calculate block size (2^(128 - max_prefix))
+			$block_size = bcpow('2', 128 - $max_prefix);
+
+			# Converting block start IP to CIDR format
+			$ip_formatted = $this->gmpToIpv6(gmp_init($current_ip_dec));
+
+			$cidr_list[] = $ip_formatted . '/' . $max_prefix;
+
+			# Advance the current address to the start of the next block
+			$current_ip_dec = bcadd($current_ip_dec, $block_size);
 		}
-		return $cidrs;
+
+		return $cidr_list;
 	}
 
 	/**
@@ -536,13 +608,14 @@ class Ip
 	 * @param string $start [OR INT REPRESENTATION] The starting IP address of the range.
 	 * @param string $end [OR INT REPRESENTATION] The ending IP address of the range.
 	 * @return array An array of CIDR notations.
+	 * @throws InvalidArgumentException
 	 */
 	public function rangeToCIDRIPv4(string $start, string $end): array
 	{
 		if(strpos($start, '.')) {
 			$start = ip2long($start);
 			if ($start === false) {
-				throw new InvalidArgumentException("The starting IP address format is invalid.");
+				throw new InvalidArgumentException('The starting IP address format is invalid.');
 			}
 		}
 		else {
@@ -552,35 +625,60 @@ class Ip
 		if(strpos($end, '.')) {
 			$end = ip2long($end);
 			if ($end === false) {
-				throw new InvalidArgumentException("The ending IP address format is invalid.");
+				throw new InvalidArgumentException('The ending IP address format is invalid.');
 			}
 		}
 		else {
 			$end = intval($end);
 		}
 
-		if ($start > $end) {
-			throw new InvalidArgumentException("The starting IP address must be less than or equal to the ending IP address.");
+		# Convert ip2long signed integer to an unsigned integer (32 bits), using an AND mask with 0xFFFFFFFF
+		# to ensure compatibility with 64-bit platforms (and to handle addresses > 127.255.255.255).
+		$uStart = $start & 0xFFFFFFFF;
+		$uEnd = $end & 0xFFFFFFFF;
+		if ($uStart > $uEnd) {
+			throw new InvalidArgumentException('The starting IP address must be less than or equal to the ending IP address.');
 		}
 
-		$cidrList = [];
-		while ($start <= $end) {
-			$maxSize = 32;
-			while ($maxSize > 0) {
-				$mask = ~(pow(2, (32 - $maxSize)) - 1);
-				$maskedBase = $start & $mask;
+		$cidr_list = [];
+		$current_ip_int = $uStart;
 
-				// Check if the mask exceeds the end address
-				if ($maskedBase != $start || ($start | ~$mask) > $end) {
+		# Greedy CIDR decomposition algorithm
+		while ($current_ip_int <= $uEnd) {
+
+			# Determine the largest possible mask. We're looking for the largest aligned block
+			# that doesn't extend beyond the end of the range ($uEnd).
+			for ($i = 0; $i <= 32; $i++) {
+				$block_size = 1 << $i;
+				$prefix = 32 - $i;
+
+				# The current IP must be aligned with this block.
+				if (($current_ip_int & ($block_size - 1)) !== 0
+
+					# The end of the block must not exceed $uEnd.
+					|| ($current_ip_int + $block_size - 1) > $uEnd) {
+
+					# If the IP is not aligned, the previous mask is the largest valid one.
+					$max_prefix = 32 - ($i - 1);
 					break;
 				}
-				$maxSize--;
+
+				# Continue to look for a larger block.
+				$max_prefix = $prefix;
 			}
 
-			$cidrList[] = long2ip($start) . '/' . ($maxSize + 1);
-			$start += pow(2, (32 - ($maxSize + 1)));
+			# Calculate the size of the optimal block found
+			$block_size_optimal = 1 << (32 - $max_prefix);
+
+			# Converting block start IP to CIDR format
+			$ip_formatted = long2ip($current_ip_int);
+			$cidr_list[] = $ip_formatted . '/' . $max_prefix;
+
+			# Advance the current address to the start of the next block
+			$current_ip_int += $block_size_optimal;
 		}
-		return $cidrList;
+
+		return $cidr_list;
 	}
 
 	/**
@@ -611,47 +709,73 @@ class Ip
 	 */
 	public function countIPsInCIDR(string $cidr): string
 	{
-		if(!$mask = explode('/', $cidr)[1] ?? null) {
+		$mask = explode('/', $cidr)[1] ?? null;
+		if(null === $mask) {
 			return 1;
 		}
-		if($this->isIPv4($cidr)) {
+		elseif($this->isIPv4($cidr)) {
+			if ($mask < 0 || $mask > 32) {
+				throw new InvalidArgumentException("Invalid IPv4 mask: $mask");
+			}
 			return 1 << (32 - (int) $mask);
 		}
-		if($this->isIPv6($cidr)) {
-			// Total bits in an IPv6 address
-			$totalBits = 128;
-
-			// Calculate the number of IPs in the CIDR block
-			$ipCount = gmp_pow(2, $totalBits - (int) $mask);
-			return gmp_strval($ipCount);
+		elseif($this->isIPv6($cidr)) {
+			if ($mask < 0 || $mask > 128) {
+				throw new InvalidArgumentException("Invalid IPv6 mask: $mask");
+			}
+			return gmp_strval(gmp_pow(2, 128 - (int) $mask));
 		}
-		return 0;
+		else {
+			throw new InvalidArgumentException("Invalid CIDR: $cidr");
+		}
 	}
 
 	/**
 	 * Calculate the number of IP v4 addresses in a given IP range.
 	 *
-	 * @param string $startIP The starting IP address of the range.
-	 * @param string $endIP The ending IP address of the range.
+	 * @param string $start The starting IP address of the range.
+	 * @param string $end The ending IP address of the range.
 	 * @return int The number of IP addresses in the range.
 	 */
-	public function countIPv4sInRange(string $startIP, string $endIP): int
+	public function countIPv4sInRange(string $start, string $end): int
 	{
-		$start = ip2long($startIP);
-		if ($start === false) {
-			throw new InvalidArgumentException("The starting IP address format is invalid.");
+		if(filter_var($start, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+			$start = ip2long($start);
+			if ($start === false) {
+				throw new InvalidArgumentException('The starting IP address format is invalid.');
+			}
+		}
+		elseif(is_numeric($start)) {
+			$start = intval($start);
+			if ($start < 0 || $start > 4294967295) {
+				throw new InvalidArgumentException('The starting IP address is invalid.');
+			}
+		}
+		else {
+			throw new InvalidArgumentException('Unexpected starting IP format');
 		}
 
-		$end = ip2long($endIP);
-		if ($end === false) {
-			throw new InvalidArgumentException("The ending IP address format is invalid.");
+		if(filter_var($end, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+			$end = ip2long($end);
+			if ($end === false) {
+				throw new InvalidArgumentException('The ending IP address format is invalid.');
+			}
+		}
+		elseif(is_numeric($end)) {
+			$end = intval($end);
+			if ($end < 0 || $end > 4294967295) {
+				throw new InvalidArgumentException('The ending IP address is invalid.');
+			}
+		}
+		else {
+			throw new InvalidArgumentException('Unexpected ending IP format');
 		}
 
 		if ($start > $end) {
 			throw new InvalidArgumentException("The starting IP address must be less than or equal to the ending IP address.");
 		}
 
-		return ($end - $start + 1);
+		return $end - $start + 1;
 	}
 
 	/**
@@ -676,9 +800,7 @@ class Ip
 			throw new InvalidArgumentException("The starting IP address must be less than or equal to the ending IP address.");
 		}
 
-		// Calculate the difference and add 1
-		$ipCount = gmp_add(gmp_sub($end, $start), 1);
-		return gmp_strval($ipCount);
+		return gmp_strval(gmp_add(gmp_sub($end, $start), 1));
 	}
 
 	/**
@@ -730,7 +852,7 @@ class Ip
 	 * Order an IPv4 array list
 	 *
 	 * @param array $ipv4s
-	 * @param string $order [optional]
+	 * @param string $order [optional] asc|desc
 	 * @return array
 	 */
 	static public function orderby(array $ipv4s, string $order = 'asc'): array
@@ -787,11 +909,13 @@ class Ip
 	 * GET ASN CIDRS from whois.radb.net (uniq)
 	 *
 	 * @param int $asn
+	 * @param bool $ipv4 [optional]
+	 * @param bool $ipv6 [optional]
 	 * @return array
 	 */
-	public function getCidrsFromASN(int $asn): array
+	public function getCidrsFromASN(int $asn, bool $ipv4 = true, bool $ipv6 = true): array
 	{
-		if (!$asn) {
+		if (!$asn || !$ipv4 && !$ipv6) {
 			return [];
 		}
 
@@ -801,9 +925,16 @@ class Ip
 			return [];
 		}
 
+		$type = 'route';
+		if($ipv6) {
+			$type .= '6';
+		}
+		if($ipv4 && $ipv6) {
+			$type .= '?';
+		}
 		$ranges = [];
 		foreach ($output as $line) {
-			if (preg_match('`^route:\s+([\d./]+)`', $line, $match)) {
+			if (preg_match('`^' . $type . ':\s+([a-f\d./:]+)`', $line, $match)) {
 				$ranges[] = $match[1];
 			}
 		}
