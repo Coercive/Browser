@@ -964,4 +964,211 @@ class Ip
 		}
 		return $this->mergeIpRanges($ranges);
 	}
+
+    /**
+     * @alias inet_pton
+     *
+     * @param string $ip
+     * @return string
+     * @throws InvalidArgumentException
+     */
+    public function ipToBin(string $ip): string
+    {
+        $bin = @inet_pton($ip);
+        if ($bin === false) {
+            throw new InvalidArgumentException('Invalid IP address : ' . $ip);
+        }
+        return $bin;
+    }
+
+    /**
+     * @alias inet_ntop
+     *
+     * @param string $bin
+     * @return string
+     * @throws InvalidArgumentException
+     */
+    public function binToIp(string $bin): string
+    {
+        $ip = @inet_ntop($bin);
+        if ($ip === false) {
+            throw new InvalidArgumentException('Invalid IP binary');
+        }
+        return $ip;
+    }
+
+    /**
+     * @alias strcmp
+     * Compare two binary IP addresses (of the same length).
+     * Returns <0 if $a < $b, 0 if equal, >0 if $a > $b
+     *
+     * @param string $a
+     * @param string $b
+     * @return int
+     */
+    public function cmpBin(string $a, string $b): int
+    {
+        return strcmp($a, $b);
+    }
+
+    /**
+     * Increment a binary (big endian) IP address.
+     *
+     * @param string $bin
+     * @return string
+     */
+    public function incBin(string $bin): string
+    {
+        $len = strlen($bin);
+        for ($i = $len - 1; $i >= 0; $i--) {
+            $ord = ord($bin[$i]);
+            if ($ord < 255) {
+                $bin[$i] = chr($ord + 1);
+                return $bin;
+            }
+            $bin[$i] = chr(0);
+        }
+        return $bin;
+    }
+
+    /**
+     * Decrements a binary (big endian) IP address.
+     *
+     * @param string $bin
+     * @return string
+     */
+    public function decBin(string $bin): string
+    {
+        $len = strlen($bin);
+        for ($i = $len - 1; $i >= 0; $i--) {
+            $ord = ord($bin[$i]);
+            if ($ord > 0) {
+                $bin[$i] = chr($ord - 1);
+                return $bin;
+            }
+            $bin[$i] = chr(255);
+        }
+        return $bin;
+    }
+
+    /**
+     * Parse textarea content
+     *
+     * @param string $raw Textarea raw content.
+     * @param int|null $version 4, 6 or null (both).
+     * @return string[] Ip list
+     */
+    public function parseStrlist(string $raw, ? int $version = null): array
+    {
+        $ips = [];
+
+        # Split \n or \r\n
+        $lines = preg_split('/\R/', $raw);
+
+        foreach ($lines as $line) {
+
+            $line = trim($line);
+            if (!$line || strpos($line, '#') === 0) {
+                continue;
+            }
+
+            if ($version === 4) {
+                $flags = FILTER_FLAG_IPV4;
+            }
+            elseif ($version === 6) {
+                $flags = FILTER_FLAG_IPV6;
+            }
+            else {
+                $flags = 0;
+            }
+
+            if ($ip = filter_var($line, FILTER_VALIDATE_IP, ['flags' => $flags])) {
+                $ips[$ip] = true;
+            }
+        }
+
+        return array_keys($ips);
+    }
+
+    /**
+     * Excludes a series of IP addresses from a range [start, end].
+     *
+     * @param string $startIp IP starting point of the range (v4 or v6).
+     * @param string $endIp IP address at the end of the range.
+     * @param string[] $excludeIps IP to exclude (same family as start/end).
+     * @return array[] List of remaining ranges:
+     * [
+     *   ['start' => 'x', 'end' => 'y'],
+     *   ...
+     * ]
+     */
+    public function splitRange(string $startIp, string $endIp, array $excludeIps): array
+    {
+        $startBin = $this->ipToBin($startIp);
+        $endBin = $this->ipToBin($endIp);
+        if (strlen($startBin) !== strlen($endBin)) {
+            throw new InvalidArgumentException('Incorrect ip range');
+        }
+
+        # Filter and convert exclude IP list
+        $excludeBin = [];
+        foreach ($excludeIps as $ip) {
+            $bin = $this->ipToBin($ip);
+            if (strlen($bin) !== strlen($startBin)) {
+                continue;
+            }
+            if ($this->cmpBin($bin, $startBin) < 0 || $this->cmpBin($bin, $endBin) > 0) {
+                continue;
+            }
+            $excludeBin[] = $bin;
+        }
+        if (!$excludeBin) {
+            return [
+                ['start' => $startIp, 'end' => $endIp],
+            ];
+        }
+
+        # Sorting IPs to exclude in asc order
+        usort($excludeBin, [$this, 'cmpBin']);
+
+        $ranges = [];
+        $currentStart = $startBin;
+        foreach ($excludeBin as $ipBin) {
+            # If the excluded IP address is before the currentStart, it has already been "skipped".
+            if ($this->cmpBin($ipBin, $currentStart) < 0) {
+                continue;
+            }
+
+            # If the excluded IP address is after the end, we can stop.
+            if ($this->cmpBin($ipBin, $endBin) > 0) {
+                break;
+            }
+
+            # If the excluded IP address is strictly after currentStart, we have a "full" range between currentStart and ipBin-1
+            if ($this->cmpBin($ipBin, $currentStart) > 0) {
+                $rangeEnd = $this->decBin($ipBin);
+
+                # Check that the range is valid
+                if ($this->cmpBin($rangeEnd, $currentStart) >= 0) {
+                    $ranges[] = [
+                        'start' => $this->binToIp($currentStart),
+                        'end'   => $this->binToIp($rangeEnd),
+                    ];
+                }
+            }
+
+            # Start a new range after the excluded IP address
+            $currentStart = $this->incBin($ipBin);
+        }
+
+        # Final range after the last excluded IP
+        if ($this->cmpBin($currentStart, $endBin) <= 0) {
+            $ranges[] = [
+                'start' => $this->binToIp($currentStart),
+                'end'   => $this->binToIp($endBin),
+            ];
+        }
+
+        return $ranges;
+    }
 }

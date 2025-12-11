@@ -639,4 +639,33 @@ final class IpTest extends TestCase
 			$this->assertMatchesRegularExpression('/^[0-9a-f:.]+\/\d{1,3}$/i', $cidr);
 		}
 	}
+
+    public function testParseStr(): void
+    {
+        $ip = new Ip;
+
+        $list = $ip->parseStrlist('
+            # Comment
+            13.1.2.3
+            13.4.5.6
+            13.7.8.9
+        ');
+
+        $this->assertSame(['13.1.2.3', '13.4.5.6', '13.7.8.9'], $list);
+    }
+
+    public function testWhitelist(): void
+    {
+        $ip = new Ip;
+
+        $whitelist = ['13.1.2.3', '13.4.5.6', '13.7.8.9'];
+        $list = $ip->splitRange('13.0.0.0', '13.255.255.255', $whitelist);
+
+        $this->assertSame([
+            ['start' => '13.0.0.0', 'end' => '13.1.2.2'],
+            ['start' => '13.1.2.4', 'end' => '13.4.5.5'],
+            ['start' => '13.4.5.7', 'end' => '13.7.8.8'],
+            ['start' => '13.7.8.10', 'end' => '13.255.255.255'],
+        ], $list);
+    }
 }
