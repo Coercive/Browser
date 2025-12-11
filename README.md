@@ -14,26 +14,11 @@ Basic Browser Options
 ```php
 use Coercive\Utility\Browser
 
-# Load instance
 $browser = new Browser();
+echo $browser->getUserAgent();
 
-# Examples
-echo $browser->browser()['name']
-echo $browser->browser()['version']
-echo $browser->os()
-echo $browser->getAGENT()
-echo $browser->getIP()
-
-if($browser->mobile()) {}
-
-if($browser->isClientIpInRange('range', /* current */)) {}
-if($browser->isClientIpInRange('range', 'ip')) {}
-
-# Mobile_Detect
-# https://github.com/serbanghita/Mobile-Detect
-$oBrowser->Mobile_Detect()
+$browser->setUserAgent('Custom');
 ```
-
 
 Basic Ip Options
 -----------------
