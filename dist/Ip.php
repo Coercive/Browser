@@ -35,6 +35,9 @@ class Ip
 	/** @var string SERVER: HTTP_X_FORWARDED_FOR entry */
 	private string $_HTTP_X_FORWARDED_FOR;
 
+	/** @var string[] */
+	private array $trustedProxies = [];
+
 	/**
 	 * Convert an IPv6 address to its numeric representation using GMP.
 	 *
@@ -95,6 +98,52 @@ class Ip
 		$this->_HTTP_X_FORWARDED_FOR = $ip;
 		return $this;
 	}
+
+	/**
+	 * @param array $ips
+	 * @return $this
+	 */
+	public function setTrustedProxies(array $ips): self
+	{
+        $this->trustedProxies = [];
+        foreach ($ips as $ip) {
+            if($this->check($ip)) {
+                $this->trustedProxies[] = $ip;
+            }
+        }
+		return $this;
+	}
+
+    /**
+     * @param array $ips
+     * @param bool $ipv4 [optional]
+     * @param bool $ipv6 [optional]
+     * @return array
+     */
+    public function clean(array $ips, bool $ipv4 = true, bool $ipv6 = true): array
+    {
+        $list = [];
+        foreach ($ips as $ip) {
+            if($ipv4 && $ipv6) {
+                if($this->check($ip)) {
+                    $list[] = $ip;
+                }
+                continue;
+            }
+            if($ipv4) {
+                if($this->isIPv4($ip)) {
+                    $list[] = $ip;
+                }
+                continue;
+            }
+            if($ipv6) {
+                if($this->isIPv6($ip)) {
+                    $list[] = $ip;
+                }
+            }
+        }
+        return array_unique($list);
+    }
 
 	/**
 	 * @param string $ip
@@ -179,23 +228,35 @@ class Ip
 	/**
 	 * Get current client ip
 	 *
-	 * @param array $trustedProxies [optional]
+	 * @param array|null $trustedProxies [optional]
 	 * @param bool $deep [optional]
 	 * @return string
 	 */
-	public function getIp(array $trustedProxies = [], bool $deep = false): string
+	public function getIp(? array $trustedProxies = null, bool $deep = false): string
 	{
-		if ($this->_HTTP_X_FORWARDED_FOR && in_array($this->_REMOTE_ADDR, $trustedProxies)) {
-			$ips = array_map('trim', explode(',', $this->_HTTP_X_FORWARDED_FOR));
-			foreach ($ips as $ip) {
-				if(!$deep) {
-					return (string) filter_var($ip, FILTER_VALIDATE_IP);
-				}
-			}
-			if($deep && !empty($ip)) {
-				return (string) filter_var($ip, FILTER_VALIDATE_IP);
-			}
-			return '';
+		if ($this->_HTTP_X_FORWARDED_FOR) {
+            if(null !== $trustedProxies) {
+                $proxyList = [];
+                foreach ($trustedProxies as $ip) {
+                    if($this->check($ip)) {
+                        $proxyList[] = $ip;
+                    }
+                }
+                $trustedProxies = $proxyList;
+            }
+            $trustedProxies = null !== $trustedProxies ? $trustedProxies : $this->trustedProxies;
+            if($trustedProxies && $this->isInRange($this->_REMOTE_ADDR, $trustedProxies)) {
+                $ips = array_map('trim', explode(',', $this->_HTTP_X_FORWARDED_FOR));
+                foreach ($ips as $ip) {
+                    if(!$deep) {
+                        return (string) filter_var($ip, FILTER_VALIDATE_IP);
+                    }
+                }
+                if($deep && !empty($ip)) {
+                    return (string) filter_var($ip, FILTER_VALIDATE_IP);
+                }
+                return '';
+            }
 		}
 		return (string) filter_var($this->_REMOTE_ADDR, FILTER_VALIDATE_IP);
 	}
@@ -288,6 +349,24 @@ class Ip
 		}
 	}
 
+    /**
+     * @param string $ip Ipv4 or Ipv6 or Cidr Ipv6
+     * @param array $cidrs List of Ipv4 or Ipv6
+     * @return bool
+     */
+    public function isInRange(string $ip, array $cidrs): bool
+    {
+        if($this->isIPv4($ip)) {
+            return $this->isInRangeIPv4($ip, $this->clean($cidrs, true, false));
+        }
+        elseif ($this->isIPv6($ip)) {
+            return $this->isInRangeIPv6($ip, $this->clean($cidrs, false, true));
+        }
+        else {
+            return false;
+        }
+    }
+
 	/**
 	 * Check if the given ipv4 belongs to given list of cidr
 	 *
@@ -298,13 +377,8 @@ class Ip
 	 * @param string[] $cidrs - List of IP/CIDR netmask : 127.0.0.0/24
 	 * @return bool
 	 */
-	public function isInRange(string $ipv4, array $cidrs): bool
+	private function isInRangeIPv4(string $ipv4, array $cidrs): bool
 	{
-		# Validate IP first
-		if(!$this->check($ipv4)) {
-			return false;
-		}
-
 		# Convert to dec
 		if(!$ip = ip2long($ipv4)) {
 			return false;
@@ -321,6 +395,75 @@ class Ip
 		}
 		return false;
 	}
+
+    /**
+     * @param string $ipv6
+     * @param array $cidrs
+     * @return bool
+     */
+    private function isInRangeIPv6(string $ipv6, array $cidrs): bool
+    {
+        $ip = $this->parseIpv6Cidr($ipv6);
+
+        foreach ($cidrs as $cidr) {
+            $range = $this->parseIpv6Cidr($cidr);
+
+            // Overlap rule: Two prefixes overlap if their first min(prefixA, prefixB) bits are equal.
+            $minMask = min($ip['mask'], $range['mask']);
+
+            if ($this->isIPv6Overlap($ip['bin'], $range['bin'], $minMask)) {
+                return true;
+            }
+        }
+
+        return false;
+
+    }
+
+    /**
+     * @param string $inputBin
+     * @param string $rangeBin
+     * @param int $minMask
+     * @return bool
+     */
+    private function isIPv6Overlap(string $inputBin, string $rangeBin, int $minMask): bool
+    {
+        # Full range
+        if($minMask === 0) {
+            return true;
+        }
+
+        # input is a single IPv6 (/128 or unspecified) -> check if IP is inside range
+        if($minMask === 128) {
+            return hash_equals($inputBin, $rangeBin);
+        }
+
+        # input is IPv6 CIDR -> check whether the two CIDRs overlap (intersection not empty)
+        $fullBytes = intdiv($minMask, 8);
+        $remBits = $minMask % 8;
+
+        // Compare full bytes
+        if ($fullBytes > 0) {
+            // substr_compare is fast and avoids large string ops
+            if (substr_compare($inputBin, $rangeBin, 0, $fullBytes) !== 0) {
+                return false;
+            }
+        }
+
+        // Compare remaining bits in next byte
+        if ($remBits > 0) {
+            $mask = (0xFF << (8 - $remBits)) & 0xFF;
+
+            $aByte = ord($inputBin[$fullBytes]) & $mask;
+            $bByte = ord($rangeBin[$fullBytes]) & $mask;
+
+            if ($aByte !== $bByte) {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
 	/**
 	 * Convert CIDR to RANGE IP
@@ -1049,6 +1192,45 @@ class Ip
             $bin[$i] = chr(255);
         }
         return $bin;
+    }
+
+    /**
+     * @param string $ipv6cidr
+     * @return array {ip, bin, mask, port}
+     */
+    public function parseIpv6Cidr(string $ipv6cidr): array
+    {
+        // Handle bracketed IPv6 with optional port: [2001:db8::1]:443
+        $port = null;
+        if (0 === strpos($ipv6cidr, '[') && $end = strpos($ipv6cidr, ']')) {
+            $port = substr($ipv6cidr, $end + 2) ?: null;
+            $ipv6cidr = substr($ipv6cidr, 1, $end - 1);
+        }
+
+        // Split CIDR if present
+        $prefix = 128;
+        if (strpos($ipv6cidr, '/')) {
+            [$addr, $pfx] = explode('/', $ipv6cidr, 2);
+
+            $prefix = (int) $pfx;
+            if ($prefix < 0 || $prefix > 128) {
+                throw new InvalidArgumentException('Invalid IPv6 prefix: ' . $ipv6cidr);
+            }
+
+            $ipv6cidr = $addr;
+        }
+
+        // inet_pton returns false on invalid address, esure it's IPv6 (16 bytes). IPv4 would be 4 bytes.
+        $bin = @inet_pton($ipv6cidr);
+        if ($bin === false || strlen($bin) !== 16) {
+            throw new InvalidArgumentException('Invalid IPv6 address: ' . $ipv6cidr);
+        }
+        return [
+            'ip' => $ipv6cidr,
+            'bin' => $bin,
+            'mask' => $prefix,
+            'port' => null === $port ? null : (int) $port,
+        ];
     }
 
     /**

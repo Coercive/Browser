@@ -5,6 +5,83 @@ use PHPUnit\Framework\TestCase;
 
 final class IpTest extends TestCase
 {
+    public function testProxy(): void
+    {
+        $ip = new Ip;
+
+        $trustedProxies = [
+            '173.245.48.0/20',
+            '103.21.244.0/22',
+            '103.22.200.0/22',
+            '103.31.4.0/22',
+            '141.101.64.0/18',
+            '108.162.192.0/18',
+            '190.93.240.0/20',
+            '188.114.96.0/20',
+            '197.234.240.0/22',
+            '198.41.128.0/17',
+            '162.158.0.0/15',
+            '104.16.0.0/13',
+            '104.24.0.0/14',
+            '172.64.0.0/13',
+            '131.0.72.0/22',
+            '2400:cb00::/32',
+            '2606:4700::/32',
+            '2803:f800::/32',
+            '2405:b500::/32',
+            '2405:8100::/32',
+            '2a06:98c0::/29',
+            '2c0f:f248::/32',
+        ];
+
+        $ip->setRemoteAddress('104.22.24.101');
+        $ip->setForwardedAddress('2001:4860:7:110e::fc');
+        $ip->setTrustedProxies($trustedProxies);
+
+        # Find nothind => get remote addr
+        $this->assertSame('104.22.24.101', $ip->getIp([]));
+
+        # Find trusted forward
+        $this->assertSame('2001:4860:7:110e::fc', $ip->getIp());
+
+        # Not in trusted => get remote addr
+        $this->assertSame('104.22.24.101', $ip->getIp([
+            '2400:cb00::/32',
+            '2606:4700::/32',
+            '2803:f800::/32',
+            '2405:b500::/32',
+            '2405:8100::/32',
+            '2a06:98c0::/29',
+            '2c0f:f248::/32',
+        ]));
+
+        # Not in trusted => get remote addr
+        $ip->setRemoteAddress('2001:4860:7:110e::fc');
+        $ip->setForwardedAddress('104.22.24.101');
+        $this->assertSame('2001:4860:7:110e::fc', $ip->getIp([
+            '2400:cb00::/32',
+            '2606:4700::/32',
+            '2803:f800::/32',
+            '2405:b500::/32',
+            '2405:8100::/32',
+            '2a06:98c0::/29',
+            '2c0f:f248::/32',
+        ]));
+
+        # Ttrusted => get forward addr
+        $ip->setRemoteAddress('2606:4700:4700::1111');
+        $ip->setForwardedAddress('1.2.3.4');
+        $this->assertSame('1.2.3.4', $ip->getIp([
+            '2400:cb00::/32',
+            '2606:4700::/32',
+            '2803:f800::/32',
+            '2405:b500::/32',
+            '2405:8100::/32',
+            '2a06:98c0::/29',
+            '2c0f:f248::/32',
+        ]));
+    }
+
 	public function testBasics(): void
 	{
 		$ip = new Ip;
@@ -58,6 +135,7 @@ final class IpTest extends TestCase
 		$this->assertFalse($ip->isIPv6('2001:db8::1:192.168.0.1'));
 
 		# Valid check
+		$this->assertTrue($ip->check('::ffff:255.255.255.255'));
 		$this->assertSame(true, $ip->check('127.0.0.1'));
 		$this->assertSame(true, $ip->check('127.0.0.1/32'));
 		$this->assertSame(true, $ip->check('::1'));
@@ -168,6 +246,47 @@ final class IpTest extends TestCase
 		# Not valid CIDR
 		$this->assertSame(false, $ip->isInRange('192.168.0.1', ['999.999.999.999/24']));
 		$this->assertSame(false, $ip->isInRange('192.168.0.1', ['192.168.0.0/33']));
+
+        #
+        # NEW IPV6
+        #
+
+        $this->assertTrue($ip->isInRange('2606:4700:4700::1111', ['2606:4700::/32']));
+        $this->assertFalse($ip->isInRange('2001:db8::1', ['2606:4700::/32']));
+        $this->assertTrue($ip->isInRange('2001:db8::1', ['2001:db8::1']));
+        $this->assertTrue($ip->isInRange('2001:db8::1', ['::/0']));
+
+        $trustedProxies = [
+            '173.245.48.0/20',
+            '103.21.244.0/22',
+            '103.22.200.0/22',
+            '103.31.4.0/22',
+            '141.101.64.0/18',
+            '108.162.192.0/18',
+            '190.93.240.0/20',
+            '188.114.96.0/20',
+            '197.234.240.0/22',
+            '198.41.128.0/17',
+            '162.158.0.0/15',
+            '104.16.0.0/13',
+            '104.24.0.0/14',
+            '172.64.0.0/13',
+            '131.0.72.0/22',
+            '2400:cb00::/32',
+            '2606:4700::/32',
+            '2803:f800::/32',
+            '2405:b500::/32',
+            '2405:8100::/32',
+            '2a06:98c0::/29',
+            '2c0f:f248::/32',
+        ];
+
+        $this->assertTrue($ip->isInRange('2606:4700:4700::1111', $trustedProxies));
+        $this->assertFalse($ip->isInRange('2001:db8::1', $trustedProxies));
+
+        // Input CIDR overlaps?
+        $this->assertTrue($ip->isInRange('2606:4700::/48', $trustedProxies));
+        $this->assertFalse($ip->isInRange('2001:db8::/32', $trustedProxies));
 	}
 
 	public function testCidr2LongIntRange(): void
