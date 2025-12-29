@@ -7,7 +7,9 @@ final class IpTest extends TestCase
 {
     public function testProxy(): void
     {
-        $ip = new Ip;
+        $withProxies = new Ip;
+        $badProxies = new Ip;
+        $noProxy = new Ip;
 
         $trustedProxies = [
             '173.245.48.0/20',
@@ -33,53 +35,40 @@ final class IpTest extends TestCase
             '2a06:98c0::/29',
             '2c0f:f248::/32',
         ];
+        $withProxies->setTrustedProxies($trustedProxies);
 
-        $ip->setRemoteAddress('104.22.24.101');
-        $ip->setForwardedAddress('2001:4860:7:110e::fc');
-        $ip->setTrustedProxies($trustedProxies);
+        $trustedProxies = [
+            '1234',
+            'FFFF:GGGG:DDD:0000',
+            'Hello world !',
+        ];
+        $badProxies->setTrustedProxies($trustedProxies);
+        $this->assertSame([], $badProxies->getTrustedProxies());
 
-        # Find nothind => get remote addr
-        $this->assertSame('104.22.24.101', $ip->getIp([]));
+        $noProxy->setRemoteAddress('104.22.24.101');
+        $noProxy->setForwardedAddress('2001:4860:7:110e::fc');
+        $withProxies->setRemoteAddress('104.22.24.101');
+        $withProxies->setForwardedAddress('2001:4860:7:110e::fc');
 
-        # Find trusted forward
-        $this->assertSame('2001:4860:7:110e::fc', $ip->getIp());
-
-        # Not in trusted => get remote addr
-        $this->assertSame('104.22.24.101', $ip->getIp([
-            '2400:cb00::/32',
-            '2606:4700::/32',
-            '2803:f800::/32',
-            '2405:b500::/32',
-            '2405:8100::/32',
-            '2a06:98c0::/29',
-            '2c0f:f248::/32',
-        ]));
+        # Find the remote or the proxied IP
+        $this->assertSame('104.22.24.101', $noProxy->getIp());
+        $this->assertSame('2001:4860:7:110e::fc', $withProxies->getIp());
 
         # Not in trusted => get remote addr
-        $ip->setRemoteAddress('2001:4860:7:110e::fc');
-        $ip->setForwardedAddress('104.22.24.101');
-        $this->assertSame('2001:4860:7:110e::fc', $ip->getIp([
-            '2400:cb00::/32',
-            '2606:4700::/32',
-            '2803:f800::/32',
-            '2405:b500::/32',
-            '2405:8100::/32',
-            '2a06:98c0::/29',
-            '2c0f:f248::/32',
-        ]));
+        $withProxies->setRemoteAddress('1.2.3.4');
+        $this->assertSame('1.2.3.4', $withProxies->getIp());
 
-        # Ttrusted => get forward addr
-        $ip->setRemoteAddress('2606:4700:4700::1111');
-        $ip->setForwardedAddress('1.2.3.4');
-        $this->assertSame('1.2.3.4', $ip->getIp([
-            '2400:cb00::/32',
-            '2606:4700::/32',
-            '2803:f800::/32',
-            '2405:b500::/32',
-            '2405:8100::/32',
-            '2a06:98c0::/29',
-            '2c0f:f248::/32',
-        ]));
+        # Trusted => get forward addr
+        $withProxies->setRemoteAddress('2606:4700:4700::1111');
+        $this->assertSame('2001:4860:7:110e::fc', $withProxies->getIp());
+
+        # Untrusted => get remote addr
+        $withProxies->setRemoteAddress('FFFF:4700:4700::1111');
+        $this->assertSame('FFFF:4700:4700::1111', $withProxies->getIp());
+
+        # Bad entry
+        $withProxies->setRemoteAddress('1234');
+        $this->assertSame('', $withProxies->getIp());
     }
 
 	public function testBasics(): void
@@ -91,10 +80,6 @@ final class IpTest extends TestCase
 
 		# Check direct input
 		$this->assertSame('127.0.0.1', $ip->getIp());
-
-		# Check proxy
-		$this->assertSame('::1', $ip->getIp(['1234', '127.0.0.1']));
-		$this->assertSame('127.0.0.2', $ip->getIp(['1234', '127.0.0.1'], true));
 
 		# Check test
 		$this->assertFalse($ip->isIPv4('::1'));

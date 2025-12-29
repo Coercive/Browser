@@ -115,6 +115,14 @@ class Ip
 	}
 
     /**
+     * @return string[]
+     */
+    public function getTrustedProxies(): array
+    {
+        return $this->trustedProxies;
+    }
+
+    /**
      * @param array $ips
      * @param bool $ipv4 [optional]
      * @param bool $ipv6 [optional]
@@ -228,35 +236,22 @@ class Ip
 	/**
 	 * Get current client ip
 	 *
-	 * @param array|null $trustedProxies [optional]
 	 * @param bool $deep [optional]
 	 * @return string
 	 */
-	public function getIp(? array $trustedProxies = null, bool $deep = false): string
+	public function getIp(bool $deep = false): string
 	{
-		if ($this->_HTTP_X_FORWARDED_FOR) {
-            if(null !== $trustedProxies) {
-                $proxyList = [];
-                foreach ($trustedProxies as $ip) {
-                    if($this->check($ip)) {
-                        $proxyList[] = $ip;
-                    }
-                }
-                $trustedProxies = $proxyList;
-            }
-            $trustedProxies = null !== $trustedProxies ? $trustedProxies : $this->trustedProxies;
-            if($trustedProxies && $this->isInRange($this->_REMOTE_ADDR, $trustedProxies)) {
-                $ips = array_map('trim', explode(',', $this->_HTTP_X_FORWARDED_FOR));
-                foreach ($ips as $ip) {
-                    if(!$deep) {
-                        return (string) filter_var($ip, FILTER_VALIDATE_IP);
-                    }
-                }
-                if($deep && !empty($ip)) {
+		if ($this->_HTTP_X_FORWARDED_FOR && $this->trustedProxies && $this->isInRange($this->_REMOTE_ADDR, $this->trustedProxies)) {
+            $ips = array_map('trim', explode(',', $this->_HTTP_X_FORWARDED_FOR));
+            foreach ($ips as $ip) {
+                if(!$deep) {
                     return (string) filter_var($ip, FILTER_VALIDATE_IP);
                 }
-                return '';
             }
+            if($deep && !empty($ip)) {
+                return (string) filter_var($ip, FILTER_VALIDATE_IP);
+            }
+            return '';
 		}
 		return (string) filter_var($this->_REMOTE_ADDR, FILTER_VALIDATE_IP);
 	}
@@ -356,6 +351,9 @@ class Ip
      */
     public function isInRange(string $ip, array $cidrs): bool
     {
+        if(!$ip || !$cidrs) {
+            return false;
+        }
         if($this->isIPv4($ip)) {
             return $this->isInRangeIPv4($ip, $this->clean($cidrs, true, false));
         }
